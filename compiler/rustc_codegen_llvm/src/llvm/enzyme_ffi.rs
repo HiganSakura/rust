@@ -104,6 +104,40 @@ pub(crate) mod Enzyme_AD {
     use super::{CConcreteType, CTypeTreeRef, Context};
     use crate::llvm::{self, EnzymeTypeTree};
 
+    #[cfg(target_os = "wasi")]
+    mod libloading {
+        #[derive(Debug)]
+        pub struct Error;
+
+        pub struct Library;
+
+        pub struct Symbol<'a, T>(std::marker::PhantomData<(&'a (), T)>);
+
+        impl Library {
+            pub unsafe fn new<P>(_path: P) -> Result<Self, Error> {
+                Err(Error)
+            }
+
+            pub unsafe fn get<T>(&self, _bytes: &[u8]) -> Result<Symbol<'_, T>, Error> {
+                Err(Error)
+            }
+        }
+
+        impl<T> std::ops::Deref for Symbol<'_, T> {
+            type Target = T;
+
+            fn deref(&self) -> &T {
+                unimplemented!()
+            }
+        }
+
+        impl<T> Symbol<'_, T> {
+            pub fn try_as_raw_ptr(&self) -> Option<*mut std::ffi::c_void> {
+                None
+            }
+        }
+    }
+
     type EnzymeSetCLBoolFn = unsafe extern "C" fn(*mut c_void, u8);
     type EnzymeSetCLStringFn = unsafe extern "C" fn(*mut c_void, *const c_char);
 

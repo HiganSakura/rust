@@ -14,12 +14,17 @@ use rustc_session::filesearch;
 
 use crate::llvm;
 
+#[cfg(not(target_os = "wasi"))]
+type OffloadLibrary = libloading::Library;
+#[cfg(target_os = "wasi")]
+type OffloadLibrary = ();
+
 pub(crate) struct RustOffloadWrapper {
     LLVMRustOffloadMapper: LLVMRustOffloadMapperFn,
     LLVMRustOffloadWrapImages: LLVMRustOffloadWrapImagesFn,
     lld_path: Option<PathBuf>,
     // Keep the dynamic library loaded while the function pointers are used.
-    _lib: libloading::Library,
+    _lib: OffloadLibrary,
 }
 
 #[derive(Debug)]
@@ -28,6 +33,7 @@ pub(crate) enum RustOffloadLibraryError {
     LoadFailed { err: String },
 }
 
+#[cfg(not(target_os = "wasi"))]
 impl From<libloading::Error> for RustOffloadLibraryError {
     fn from(err: libloading::Error) -> Self {
         Self::LoadFailed { err: format!("{err:?}") }
@@ -70,6 +76,15 @@ impl RustOffloadWrapper {
     fn call_dynamic(
         sysroot: &rustc_session::config::Sysroot,
     ) -> Result<Self, RustOffloadLibraryError> {
+        #[cfg(target_os = "wasi")]
+        {
+            let _ = sysroot;
+            return Err(RustOffloadLibraryError::NotFound {
+                err: "offload is not supported on wasm32-wasip1".to_string(),
+            });
+        }
+        #[cfg(not(target_os = "wasi"))]
+        {
         let (rust_offload_path, lld_path) = Self::get_offload_and_lld_paths(sysroot)?;
         let lib = unsafe { libloading::Library::new(rust_offload_path)? };
 
@@ -84,8 +99,10 @@ impl RustOffloadWrapper {
             lld_path,
             _lib: lib,
         })
+        }
     }
 
+    #[cfg(not(target_os = "wasi"))]
     fn get_offload_and_lld_paths(
         sysroot: &rustc_session::config::Sysroot,
     ) -> Result<(PathBuf, Option<PathBuf>), RustOffloadLibraryError> {
