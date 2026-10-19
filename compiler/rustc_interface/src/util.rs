@@ -179,36 +179,50 @@ fn run_in_thread_with_globals<F: FnOnce(CurrentGcx) -> R + Send, R: Send>(
     extra_symbols: &[&'static str],
     f: F,
 ) -> R {
-    // The "thread pool" is a single spawned thread in the non-parallel
-    // compiler. We run on a spawned thread instead of the main thread (a) to
-    // provide control over the stack size, and (b) to increase similarity with
-    // the parallel compiler, in particular to ensure there is no accidental
-    // sharing of data between the main thread and the compilation thread
-    // (which might cause problems for the parallel compiler).
-    let builder = thread::Builder::new().name("rustc".to_string()).stack_size(thread_stack_size);
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = thread_stack_size;
+        rustc_span::create_session_globals_then(
+            edition,
+            extra_symbols,
+            Some(sm_inputs),
+            || f(CurrentGcx::new()),
+        )
+    }
 
-    // We build the session globals and run `f` on the spawned thread, because
-    // `SessionGlobals` does not impl `Send` in the non-parallel compiler.
-    thread::scope(|s| {
-        // `unwrap` is ok here because `spawn_scoped` only panics if the thread
-        // name contains null bytes.
-        let r = builder
-            .spawn_scoped(s, move || {
-                rustc_span::create_session_globals_then(
-                    edition,
-                    extra_symbols,
-                    Some(sm_inputs),
-                    || f(CurrentGcx::new()),
-                )
-            })
-            .unwrap()
-            .join();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        // The "thread pool" is a single spawned thread in the non-parallel
+        // compiler. We run on a spawned thread instead of the main thread (a) to
+        // provide control over the stack size, and (b) to increase similarity with
+        // the parallel compiler, in particular to ensure there is no accidental
+        // sharing of data between the main thread and the compilation thread
+        // (which might cause problems for the parallel compiler).
+        let builder = thread::Builder::new().name("rustc".to_string()).stack_size(thread_stack_size);
 
-        match r {
-            Ok(v) => v,
-            Err(e) => std::panic::resume_unwind(e),
-        }
-    })
+        // We build the session globals and run `f` on the spawned thread, because
+        // `SessionGlobals` does not impl `Send` in the non-parallel compiler.
+        thread::scope(|s| {
+            // `unwrap` is ok here because `spawn_scoped` only panics if the thread
+            // name contains null bytes.
+            let r = builder
+                .spawn_scoped(s, move || {
+                    rustc_span::create_session_globals_then(
+                        edition,
+                        extra_symbols,
+                        Some(sm_inputs),
+                        || f(CurrentGcx::new()),
+                    )
+                })
+                .unwrap()
+                .join();
+
+            match r {
+                Ok(v) => v,
+                Err(e) => std::panic::resume_unwind(e),
+            }
+        })
+    }
 }
 
 pub(crate) fn run_in_thread_pool_with_globals<F: FnOnce(CurrentGcx) -> R + Send, R: Send>(
@@ -378,13 +392,15 @@ pub fn get_codegen_backend(
         let backend = backend_name
             .or(target.default_codegen_backend.as_deref())
             .or(option_env!("CFG_DEFAULT_CODEGEN_BACKEND"))
-            .unwrap_or("dummy");
+            .unwrap_or(if cfg!(target_family = "wasm") { "cranelift" } else { "dummy" });
 
         match backend {
             filename if filename.contains('.') => {
                 load_backend_from_dylib(early_dcx, filename.as_ref())
             }
             "dummy" => || Box::new(DummyCodegenBackend),
+            #[cfg(target_family = "wasm")]
+            "cranelift" => rustc_codegen_cranelift::__rustc_codegen_backend,
             #[cfg(feature = "llvm")]
             "llvm" => rustc_codegen_llvm::LlvmCodegenBackend::new,
             backend_name => get_codegen_sysroot(early_dcx, sysroot, backend_name),

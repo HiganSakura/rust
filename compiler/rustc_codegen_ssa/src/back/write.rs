@@ -421,12 +421,14 @@ fn need_pre_lto_bitcode_for_incr_comp(sess: &Session) -> bool {
     }
 }
 
-pub(crate) fn start_async_codegen<B: WriteBackendMethods>(
+pub(crate) fn start_async_codegen<
+    B: WriteBackendMethods + ExtraBackendMethods<Module = <B as WriteBackendMethods>::Module>,
+>(
     backend: B,
     tcx: TyCtxt<'_>,
     regular_config: Arc<ModuleConfig>,
     allocator_config: Arc<ModuleConfig>,
-    allocator_module: Option<ModuleCodegen<B::Module>>,
+    allocator_module: Option<ModuleCodegen<<B as WriteBackendMethods>::Module>>,
 ) -> OngoingCodegen<B> {
     let (coordinator_send, coordinator_receive) = channel();
 
@@ -1201,7 +1203,14 @@ enum MainThreadState {
     Lending,
 }
 
-fn start_executing_work<B: WriteBackendMethods>(
+#[cfg(not(target_family = "wasm"))]
+type CoordinatorFuture<B> = thread::JoinHandle<Result<MaybeLtoModules<B>, ()>>;
+#[cfg(target_family = "wasm")]
+type CoordinatorFuture<B> = Result<MaybeLtoModules<B>, ()>;
+
+fn start_executing_work<
+    B: WriteBackendMethods + ExtraBackendMethods<Module = <B as WriteBackendMethods>::Module>,
+>(
     backend: B,
     tcx: TyCtxt<'_>,
     shared_emitter: SharedEmitter,
@@ -1209,9 +1218,9 @@ fn start_executing_work<B: WriteBackendMethods>(
     coordinator_receive: Receiver<Message<B>>,
     regular_config: Arc<ModuleConfig>,
     allocator_config: Arc<ModuleConfig>,
-    mut allocator_module: Option<ModuleCodegen<B::Module>>,
+    mut allocator_module: Option<ModuleCodegen<<B as WriteBackendMethods>::Module>>,
     coordinator_send: Sender<Message<B>>,
-) -> thread::JoinHandle<Result<MaybeLtoModules<B>, ()>> {
+) -> CoordinatorFuture<B> {
     let sess = tcx.sess;
     let prof = sess.prof.clone();
 
@@ -1427,6 +1436,23 @@ fn start_executing_work<B: WriteBackendMethods>(
     // Each LLVM module is automatically sent back to the coordinator for LTO if
     // necessary. There's already optimizations in place to avoid sending work
     // back to the coordinator if LTO isn't requested.
+    #[cfg(target_family = "wasm")]
+    {
+        let mut modules = Vec::new();
+        for cgu in tcx.collect_and_partition_mono_items(()).codegen_units {
+            let (module, _) = backend.compile_codegen_unit(
+                tcx,
+                cgu.name(),
+                cgcx.module_config.bitcode_needed(),
+            );
+            modules.push(B::codegen(&cgcx, &prof, &shared_emitter, module, &cgcx.module_config));
+        }
+        let allocator_module = allocator_module
+            .map(|module| B::codegen(&cgcx, &prof, &shared_emitter, module, &allocator_config));
+        return Ok(MaybeLtoModules::NoLto(CompiledModules { modules, allocator_module }));
+    }
+
+    #[cfg(not(target_family = "wasm"))]
     let f = move || {
         let _profiler = if cgcx.time_trace { B::thread_profiler() } else { Box::new(()) };
 
@@ -1779,6 +1805,7 @@ fn start_executing_work<B: WriteBackendMethods>(
             }),
         }))
     };
+    #[cfg(not(target_family = "wasm"))]
     return std::thread::Builder::new()
         .name("coordinator".to_owned())
         .spawn(f)
@@ -2055,24 +2082,38 @@ impl SharedEmitterMain {
 
 pub struct Coordinator<B: WriteBackendMethods> {
     sender: Sender<Message<B>>,
-    future: Option<thread::JoinHandle<Result<MaybeLtoModules<B>, ()>>>,
+    future: Option<CoordinatorFuture<B>>,
     // Only used for the Message type.
     phantom: PhantomData<B>,
 }
 
 impl<B: WriteBackendMethods> Coordinator<B> {
     fn join(mut self) -> std::thread::Result<Result<MaybeLtoModules<B>, ()>> {
-        self.future.take().unwrap().join()
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.future.take().unwrap().join()
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            Ok(self.future.take().unwrap())
+        }
     }
 }
 
 impl<B: WriteBackendMethods> Drop for Coordinator<B> {
     fn drop(&mut self) {
         if let Some(future) = self.future.take() {
-            // If we haven't joined yet, signal to the coordinator that it should spawn no more
-            // work, and wait for worker threads to finish.
-            drop(self.sender.send(Message::CodegenAborted::<B>));
-            drop(future.join());
+            #[cfg(not(target_family = "wasm"))]
+            {
+                // If we haven't joined yet, signal to the coordinator that it should spawn no more
+                // work, and wait for worker threads to finish.
+                drop(self.sender.send(Message::CodegenAborted::<B>));
+                drop(future.join());
+            }
+            #[cfg(target_family = "wasm")]
+            {
+                drop(future);
+            }
         }
     }
 }

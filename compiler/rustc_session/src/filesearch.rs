@@ -277,6 +277,9 @@ fn current_dll_path() -> Result<PathBuf, String> {
 /// This function checks if sysroot is found using env::args().next(), and if it
 /// is not found, finds sysroot from current rustc_driver dll.
 pub(crate) fn default_sysroot() -> PathBuf {
+    #[cfg(target_os = "wasi")]
+    return PathBuf::new();
+
     fn default_from_rustc_driver_dll() -> Result<PathBuf, String> {
         let dll = current_dll_path()?;
 

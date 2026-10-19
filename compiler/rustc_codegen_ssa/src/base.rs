@@ -846,8 +846,10 @@ pub fn codegen_crate<
         FxHashMap::default()
     };
 
-    for (i, cgu) in codegen_units.iter().enumerate() {
-        ongoing_codegen.wait_for_signal_to_codegen_item();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        for (i, cgu) in codegen_units.iter().enumerate() {
+            ongoing_codegen.wait_for_signal_to_codegen_item();
         ongoing_codegen.check_for_errors(tcx.sess);
 
         let cgu_reuse = cgu_reuse[i];
@@ -895,7 +897,11 @@ pub fn codegen_crate<
         }
     }
 
-    ongoing_codegen.codegen_finished(tcx);
+        ongoing_codegen.codegen_finished(tcx);
+    }
+
+    #[cfg(target_family = "wasm")]
+    ongoing_codegen.check_for_errors(tcx.sess);
 
     // Since the main thread is sometimes blocked during codegen, we keep track
     // -Ztime-passes output manually.

@@ -2415,6 +2415,10 @@ impl CommandLineStep for Assemble {
                     continue;
                 }
 
+                if target_compiler.host.triple.contains("wasm") {
+                    continue;
+                }
+
                 let prepare_compilers = || {
                     RustcPrivateCompilers::from_build_and_target_compiler(
                         build_compiler,

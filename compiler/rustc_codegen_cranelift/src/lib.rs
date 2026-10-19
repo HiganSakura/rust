@@ -8,6 +8,7 @@
 #![warn(rust_2018_idioms)]
 #![warn(unreachable_pub)]
 #![warn(unused_lifetimes)]
+#![allow(rustc::symbol_intern_string_literal)]
 // tidy-alphabetical-end
 
 extern crate rustc_abi;
@@ -29,6 +30,7 @@ extern crate rustc_symbol_mangling;
 extern crate rustc_target;
 
 // This prevents duplicating functions and statics that are already part of the host rustc process.
+#[cfg(not(target_family = "wasm"))]
 #[allow(unused_extern_crates)]
 extern crate rustc_driver;
 

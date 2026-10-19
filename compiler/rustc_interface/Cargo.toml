@@ -59,6 +59,9 @@ tracing = "0.1"
 rustc_abi = { path = "../rustc_abi" }
 # tidy-alphabetical-end
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+rustc_codegen_cranelift = { path = "../rustc_codegen_cranelift" }
+
 [features]
 # tidy-alphabetical-start
 check_only = ['rustc_codegen_llvm?/check_only']

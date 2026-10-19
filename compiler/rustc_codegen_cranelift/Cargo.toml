@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["dylib", "lib"]
 
 [dependencies]
 # These have to be in sync with each other
@@ -50,3 +50,20 @@ unwinding = [] # Not yet included in unstable-features for performance reasons
 
 [package.metadata.rust-analyzer]
 rustc_private = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+rustc_abi = { path = "../rustc_abi" }
+rustc_ast = { path = "../rustc_ast" }
+rustc_attr_ir = { path = "../rustc_attr_ir" }
+rustc_codegen_ssa = { path = "../rustc_codegen_ssa" }
+rustc_const_eval = { path = "../rustc_const_eval" }
+rustc_data_structures = { path = "../rustc_data_structures" }
+rustc_errors = { path = "../rustc_errors" }
+rustc_hir = { path = "../rustc_hir" }
+rustc_index = { path = "../rustc_index" }
+rustc_log = { path = "../rustc_log" }
+rustc_middle = { path = "../rustc_middle" }
+rustc_session = { path = "../rustc_session" }
+rustc_span = { path = "../rustc_span" }
+rustc_symbol_mangling = { path = "../rustc_symbol_mangling" }
+rustc_target = { path = "../rustc_target" }
