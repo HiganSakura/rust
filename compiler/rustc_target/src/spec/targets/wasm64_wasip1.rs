@@ -4,8 +4,8 @@ pub(crate) fn target() -> Target {
     let mut options = base::wasm::options();
     options.os = Os::Wasi;
     options.env = Env::P1;
-    options.add_pre_link_args(LinkerFlavor::WasmLld(Cc::No), &["-mwasm64"]);
-    options.add_pre_link_args(LinkerFlavor::WasmLld(Cc::Yes), &["--target=wasm64-wasip1"]);
+    options.add_pre_link_args(LinkerFlavor::WasmLld(Cc::No), &["-mwasm64", "-z", "stack-size=33554432"]);
+    options.add_pre_link_args(LinkerFlavor::WasmLld(Cc::Yes), &["-Wl,-z", "-Wl,stack-size=33554432", "--target=wasm64-wasip1"]);
     options.link_self_contained = LinkSelfContainedDefault::False;
     options.crt_static_default = true;
     options.crt_static_respected = true;
